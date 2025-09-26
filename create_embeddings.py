@@ -25,14 +25,14 @@ Usage (paths use forward slashes so they're Windows-safe):
 
   # Windows
   python create_embeddings.py ^
-    --images-folder "data\\processed_chicago" ^
+    --images-folder "data\\processed" ^
     --data-in "data\\data_with_relations.json" ^
     --data-out "data\\data_final.json" ^
     --words-in "data\\unique_words_with_relations.json" ^
     --words-out "data\\unique_words_final.json" ^
-    --image-pt "data\\multi_clip_images_embedding_chicago.pt" ^
-    --words-pt "data\\multi_clip_words_embedding_chicago.pt" ^
-    --joint-pt "data\\multi_clip_joint_embedding_chicago.pt" ^
+    --image-pt "data\\multi_clip_images_embedding.pt" ^
+    --words-pt "data\\multi_clip_words_embedding.pt" ^
+    --joint-pt "data\\multi_clip_joint_embedding.pt" ^
     --batch-size 32 ^
     --umap-n-neighbors 15 ^
     --umap-min-dist 0.1 ^
