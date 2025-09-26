@@ -158,7 +158,7 @@ This step builds:
 **Windows (PowerShell / CMD):**
 ```bash
 python create_embeddings.py ^
-  --images-folder "path\\to\\processed" ^
+  --images-folder "path\\to\\images" ^
   --data-in "path\\to\\data_with_relations.json" ^
   --data-out "path\\to\\data_final.json" ^
   --words-in "path\\to\\unique_words_with_relations.json" ^

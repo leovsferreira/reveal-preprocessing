@@ -25,14 +25,14 @@ Usage (paths use forward slashes so they're Windows-safe):
 
   # Windows
   python create_embeddings.py ^
-    --images-folder "data\\processed" ^
-    --data-in "data\\data_with_relations.json" ^
-    --data-out "data\\data_final.json" ^
-    --words-in "data\\unique_words_with_relations.json" ^
-    --words-out "data\\unique_words_final.json" ^
-    --image-pt "data\\multi_clip_images_embedding.pt" ^
-    --words-pt "data\\multi_clip_words_embedding.pt" ^
-    --joint-pt "data\\multi_clip_joint_embedding.pt" ^
+    --images-folder "path\\to\\images" ^
+    --data-in "path\\to\\data_with_relations.json" ^
+    --data-out "path\\to\\data_final.json" ^
+    --words-in "path\\to\\unique_words_with_relations.json" ^
+    --words-out "path\\to\\unique_words_final.json" ^
+    --image-pt "path\\to\\multi_clip_images_embedding.pt" ^
+    --words-pt "path\\to\\multi_clip_words_embedding.pt" ^
+    --joint-pt "path\\to\\multi_clip_joint_embedding.pt" ^
     --batch-size 32 ^
     --umap-n-neighbors 15 ^
     --umap-min-dist 0.1 ^
@@ -119,6 +119,43 @@ def build_text_encoder():
     txt_model.eval()
     return txt_model, tokenizer
 
+def window_token_ids(text: str, tokenizer, max_tokens: int = 512, overlap: int = 64) -> list[list[int]]:
+    if overlap < 0: overlap = 0
+    if overlap >= max_tokens: overlap = max_tokens - 1
+
+    base = tokenizer(text, add_special_tokens=False)["input_ids"]
+    if len(base) == 0:
+        base = tokenizer(" ", add_special_tokens=False)["input_ids"]
+
+    windows = []
+    step = max_tokens - overlap
+    for start in range(0, len(base), step):
+        chunk_ids = base[start:start + max_tokens]
+        enc = tokenizer.prepare_for_model(
+            chunk_ids, add_special_tokens=True, truncation=False
+        )
+        windows.append(enc["input_ids"])
+        if len(chunk_ids) < max_tokens:
+            break
+    return windows
+
+
+def pool_window_embeddings(embs: list[torch.Tensor], weights: list[int] | None, mode: str) -> torch.Tensor:
+    if not embs:
+        return torch.zeros(512)
+
+    E = torch.stack(embs, dim=0)
+
+    if mode == "max":
+        return E.max(dim=0).values
+
+    if mode == "weighted" and weights is not None and sum(weights) > 0:
+        w = torch.tensor(weights, dtype=E.dtype).unsqueeze(1)  # [W,1]
+        return (E * (w / w.sum())).sum(dim=0)
+
+    return E.mean(dim=0)
+
+
 @torch.no_grad()
 def encode_images(records: List[Dict[str, Any]],
                   images_folder: str,
@@ -176,24 +213,63 @@ def encode_images(records: List[Dict[str, Any]],
 
 
 @torch.no_grad()
-def encode_texts_textlevel(texts: list[str],
-                           txt_model,
-                           tokenizer,
-                           device: str,
-                           batch_size: int = 64,
-                           max_tokens: int = 512) -> torch.Tensor:
-    texts = [truncate_to_max_tokens(t if isinstance(t, str) else str(t),
-                                    tokenizer, max_tokens=max_tokens)
-             for t in texts]
+def encode_texts_textlevel(
+    texts: list[str],
+    txt_model,
+    tokenizer,
+    device: str,
+    batch_size: int = 64,
+    max_tokens: int = 512,
+    overlap: int = 64,
+    pooling: str = "mean",
+) -> torch.Tensor:
+    """
+    If pooling == 'truncate': keep first <=max_tokens via tokenizer truncation (fast).
+    Else: slide windows with overlap, encode each window, pool window embeddings.
+    """
+    out: list[torch.Tensor] = []
 
-    embs: list[torch.Tensor] = []
-    for start in tqdm(range(0, len(texts), batch_size), desc="Encoding texts"):
-        batch = texts[start:start + batch_size]
-        feats = txt_model.forward(batch, tokenizer).to(device)
-        feats = feats.float()
-        feats = feats / (feats.norm(dim=-1, keepdim=True) + 1e-9)
-        embs.append(feats.cpu())
-    return torch.cat(embs, dim=0) if embs else torch.zeros((0, 512))
+    if pooling == "truncate":
+        def truncate_to_max_tokens(s: str) -> str:
+            enc = tokenizer(s, add_special_tokens=True, truncation=True, max_length=max_tokens)
+            return tokenizer.decode(enc["input_ids"], skip_special_tokens=True)
+
+        texts_small = [truncate_to_max_tokens(str(t)) for t in texts]
+
+        for start in tqdm(range(0, len(texts_small), batch_size), desc="Encoding texts"):
+            batch = texts_small[start:start + batch_size]
+            feats = txt_model.forward(batch, tokenizer).to(device)
+            feats = feats.float()
+            feats = feats / (feats.norm(dim=-1, keepdim=True) + 1e-9)
+            out.append(feats.cpu())
+
+        return torch.cat(out, dim=0) if out else torch.zeros((0, 512))
+
+    for s in tqdm(texts, desc="Encoding texts (windowed)"):
+        s = str(s)
+        win_ids = window_token_ids(s, tokenizer, max_tokens=max_tokens, overlap=overlap)
+        win_texts = [tokenizer.decode(ids, skip_special_tokens=True) for ids in win_ids]
+
+        doc_embs: list[torch.Tensor] = []
+        for start in range(0, len(win_texts), max(1, batch_size // 4)):
+            chunk = win_texts[start:start + max(1, batch_size // 4)]
+            feats = txt_model.forward(chunk, tokenizer).to(device)
+            feats = feats.float()
+            feats = feats / (feats.norm(dim=-1, keepdim=True) + 1e-9)
+            doc_embs.append(feats.cpu())
+
+        if doc_embs:
+            doc_embs = torch.cat(doc_embs, dim=0)  # [W, D]
+            weights = [len(ids) for ids in win_ids]
+            pooled = pool_window_embeddings([doc_embs[i] for i in range(doc_embs.shape[0])],
+                                            weights if pooling == "weighted" else None,
+                                            pooling)
+            out.append(pooled)
+        else:
+            out.append(torch.zeros(512))
+
+    return torch.stack(out, dim=0)
+
 
 
 def umap_2d(embeddings: np.ndarray, n_neighbors: int, min_dist: float, seed: int) -> np.ndarray:
@@ -218,7 +294,9 @@ def parse_args():
     p.add_argument("--image-pt", required=True, help="Path to save image embedding tensor (.pt).")
     p.add_argument("--words-pt", required=True, help="Path to save words embedding tensor (.pt).")
     p.add_argument("--joint-pt", required=True, help="Path to save joint embedding tensor (.pt).")
-    p.add_argument("--max-tokens", type=int, default=512, help="Max tokens per text for M-CLIP (captions/words will be truncated to this length).")
+    p.add_argument("--max-tokens", type=int, default=512, help="Token cap per window for M-CLIP.")
+    p.add_argument("--overlap", type=int, default=64,help="Token overlap between consecutive windows (0..max_tokens-1).")
+    p.add_argument("--pooling", choices=["truncate", "mean", "weighted", "max"], default="mean", help="How to pool window embeddings into one vector per text.")
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--umap-n-neighbors", type=int, default=15)
     p.add_argument("--umap-min-dist", type=float, default=0.1)
@@ -262,8 +340,11 @@ def main():
         tokenizer=tokenizer,
         device=device,
         batch_size=max(32, args.batch_size),
-        max_tokens=args.max_tokens
+        max_tokens=args.max_tokens,
+        overlap=args.overlap,
+        pooling="truncate"
     )
+
     torch.save(word_emb, args.words_pt)
 
     word_xy = umap_2d(to_numpy(word_emb), args.umap_n_neighbors, args.umap_min_dist, args.seed)
@@ -273,12 +354,14 @@ def main():
 
     captions = [str(r.get("output", "")) for r in data_records]
     cap_emb = encode_texts_textlevel(
-        texts=[str(r.get("output", "")) for r in data_records],
+        texts=captions,
         txt_model=txt_model,
         tokenizer=tokenizer,
         device=device,
         batch_size=min(8, args.batch_size),
-        max_tokens=args.max_tokens
+        max_tokens=args.max_tokens,
+        overlap=args.overlap,
+        pooling=args.pooling
     )
 
     img_norm = l2_normalize(img_emb)
