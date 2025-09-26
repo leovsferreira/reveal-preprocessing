@@ -25,14 +25,14 @@ Usage (paths use forward slashes so they're Windows-safe):
 
   # Windows
   python create_embeddings.py ^
-    --images-folder "path\\to\\processed" ^
-    --data-in "path\\to\\data_with_relations.json" ^
-    --data-out "path\\to\\data_final.json" ^
-    --words-in "path\\to\\unique_words_with_relations.json" ^
-    --words-out "path\\to\\unique_words_final.json" ^
-    --image-pt "path\\to\\multi_clip_images_embedding.pt" ^
-    --words-pt "path\\to\\multi_clip_words_embedding.pt" ^
-    --joint-pt "path\\to\\multi_clip_joint_embedding.pt" ^
+    --images-folder "data\\processed_chicago" ^
+    --data-in "data\\data_with_relations.json" ^
+    --data-out "data\\data_final.json" ^
+    --words-in "data\\unique_words_with_relations.json" ^
+    --words-out "data\\unique_words_final.json" ^
+    --image-pt "data\\multi_clip_images_embedding_chicago.pt" ^
+    --words-pt "data\\multi_clip_words_embedding_chicago.pt" ^
+    --joint-pt "data\\multi_clip_joint_embedding_chicago.pt" ^
     --batch-size 32 ^
     --umap-n-neighbors 15 ^
     --umap-min-dist 0.1 ^
@@ -94,6 +94,15 @@ def safe_open_image(path: str) -> Optional[Image.Image]:
 
 def to_numpy(t: torch.Tensor) -> np.ndarray:
     return t.detach().cpu().numpy()
+
+def truncate_to_max_tokens(text: str, tokenizer, max_tokens: int = 512) -> str:
+    enc = tokenizer(
+        text,
+        add_special_tokens=True,
+        truncation=True,
+        max_length=max_tokens
+    )
+    return tokenizer.decode(enc["input_ids"], skip_special_tokens=True)
 
 
 def build_image_encoder(device: str):
@@ -167,20 +176,23 @@ def encode_images(records: List[Dict[str, Any]],
 
 
 @torch.no_grad()
-def encode_texts_textlevel(texts: List[str],
+def encode_texts_textlevel(texts: list[str],
                            txt_model,
                            tokenizer,
                            device: str,
-                           batch_size: int = 64) -> torch.Tensor:
-    embs: List[torch.Tensor] = []
+                           batch_size: int = 64,
+                           max_tokens: int = 512) -> torch.Tensor:
+    texts = [truncate_to_max_tokens(t if isinstance(t, str) else str(t),
+                                    tokenizer, max_tokens=max_tokens)
+             for t in texts]
 
+    embs: list[torch.Tensor] = []
     for start in tqdm(range(0, len(texts), batch_size), desc="Encoding texts"):
         batch = texts[start:start + batch_size]
-        feats = txt_model.forward(batch, tokenizer).to(device if device == "cuda" else "cpu")
+        feats = txt_model.forward(batch, tokenizer).to(device)
         feats = feats.float()
-        feats = l2_normalize(feats)
+        feats = feats / (feats.norm(dim=-1, keepdim=True) + 1e-9)
         embs.append(feats.cpu())
-
     return torch.cat(embs, dim=0) if embs else torch.zeros((0, 512))
 
 
@@ -206,6 +218,7 @@ def parse_args():
     p.add_argument("--image-pt", required=True, help="Path to save image embedding tensor (.pt).")
     p.add_argument("--words-pt", required=True, help="Path to save words embedding tensor (.pt).")
     p.add_argument("--joint-pt", required=True, help="Path to save joint embedding tensor (.pt).")
+    p.add_argument("--max-tokens", type=int, default=512, help="Max tokens per text for M-CLIP (captions/words will be truncated to this length).")
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--umap-n-neighbors", type=int, default=15)
     p.add_argument("--umap-min-dist", type=float, default=0.1)
@@ -248,7 +261,8 @@ def main():
         txt_model=txt_model,
         tokenizer=tokenizer,
         device=device,
-        batch_size=max(32, args.batch_size)
+        batch_size=max(32, args.batch_size),
+        max_tokens=args.max_tokens
     )
     torch.save(word_emb, args.words_pt)
 
@@ -259,16 +273,17 @@ def main():
 
     captions = [str(r.get("output", "")) for r in data_records]
     cap_emb = encode_texts_textlevel(
-        texts=captions,
+        texts=[str(r.get("output", "")) for r in data_records],
         txt_model=txt_model,
         tokenizer=tokenizer,
         device=device,
-        batch_size=max(8, args.batch_size // 2)
-    ) 
+        batch_size=min(8, args.batch_size),
+        max_tokens=args.max_tokens
+    )
 
     img_norm = l2_normalize(img_emb)
     cap_norm = l2_normalize(cap_emb)
-    joint = torch.cat([img_norm, cap_norm], dim=-1)  # [N_img, D_img + D_txt]
+    joint = torch.cat([img_norm, cap_norm], dim=-1)
     torch.save(joint, args.joint_pt)
 
     with open(args.data_out, "w", encoding="utf-8") as f:
