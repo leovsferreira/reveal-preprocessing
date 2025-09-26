@@ -79,7 +79,7 @@ def process_file(nlp, input_file, output_file, min_len, zipf_min):
             unique_words.add(lemma)
 
     result = [
-        {"word": word, "coordinates": [], "image_ids": []}
+        {"word": word, "x":0, "y":0, "image_ids": []}
         for word in sorted(unique_words)
     ]
 
