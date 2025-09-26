@@ -20,18 +20,18 @@ Build relations between images (data.json) and words (unique_words.json).
 Usage:
   # Windows
   python build_relations.py ^
-    --data-in "data\\data_indexed.json" ^
-    --words-in "data\\unique_words.json" ^
-    --data-out "data\\data_with_relations.json" ^
-    --words-out "data\\unique_words_with_relations.json" ^
+    --data-in "path\\to\\data_indexed.json" ^
+    --words-in "path\\to\\unique_words.json" ^
+    --data-out "path\\to\\data_with_relations.json" ^
+    --words-out "path\\to\\unique_words_with_relations.json" ^
     --min-len 3
 
   # macOS / Linux
   python build_relations.py \
-    --data-in "data/data_indexed.json" \
-    --words-in "data/unique_words.json" \
-    --data-out "data/data_with_relations.json" \
-    --words-out "data/unique_words_with_relations.json" \
+    --data-in "/path/to/data_indexed.json" \
+    --words-in "/path/to/unique_words.json" \
+    --data-out "/path/to/data_with_relations.json" \
+    --words-out "/path/to/unique_words_with_relations.json" \
     --min-len 3
 """
 

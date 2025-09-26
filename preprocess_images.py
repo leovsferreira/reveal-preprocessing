@@ -17,11 +17,11 @@ Usage:
 
   # Windows (PowerShell / CMD)
   python preprocess_images.py ^
-    --data-in "data\\data.json" ^
-    --data-out "data\\data_indexed.json" ^
-    --input-folder "data\\images\chicago" ^
-    --output-folder "data\\processed_chicago" ^
-    --thumb-folder "data\\thumbnails_chicago" ^
+    --data-in "\\path\\to\\data.json" ^
+    --data-out "\\path\\to\\data_indexed.json" ^
+    --input-folder "\\path\\to\\images" ^
+    --output-folder "\\path\\to\\processed" ^
+    --thumb-folder "\\path\\to\\thumbnails" ^
     --max-width 800 --max-height 600 --thumb-size 93
 
   # Linux / macOS
