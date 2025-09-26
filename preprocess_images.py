@@ -1,38 +1,49 @@
 """
-Batch image resizer + square thumbnail generator.
+Batch image renamer + resizer + square thumbnail generator (index-based filenames).
 
-- Resizes every image in an input folder to fit within (max_width x max_height)
-  while preserving aspect ratio, then saves to an output folder.
-- Generates square thumbnails (default 93x93) via smart center crop and saves
-  them to a thumbnails folder.
+- Reads a JSON dataset (data.json) where each item has:
+    {"filename": "<original name in input folder>", "output": "<caption text>"}
+- Uses the ORDER in data.json as the canonical index:
+    * For item at position i, the processed image is saved as "i.jpg"
+      (JPEG) to --output-folder
+    * The thumbnail is saved as "i.jpg" to --thumb-folder
+    * The record's "filename" is updated to "i.jpg" and written to --data-out
+
+- Resizes every image to fit within (max_width x max_height) preserving aspect ratio.
+- Generates square thumbnails (default 93x93) via smart center crop.
 - Uses concurrent processing for speed.
-- Windows-friendly (protects multiprocessing with the __main__ guard).
 
-Call with your folders to ensure they are actually used, e.g.:
+Usage:
 
   # Windows (PowerShell / CMD)
   python preprocess_images.py ^
-    --input-folder "C:\\path\\to\\your\\images" ^
-    --output-folder "C:\\path\\to\\processed\\images" ^
-    --thumb-folder "C:\\path\\to\\thumbnails" ^
+    --data-in "data\\data.json" ^
+    --data-out "data\\data_indexed.json" ^
+    --input-folder "data\\images\chicago" ^
+    --output-folder "data\\processed_chicago" ^
+    --thumb-folder "data\\thumbnails_chicago" ^
     --max-width 800 --max-height 600 --thumb-size 93
 
   # Linux / macOS
   python preprocess_images.py \
+    --data-in "/path/to/data.json" \
+    --data-out "/path/to/data_indexed.json" \
     --input-folder "/path/to/your/images" \
     --output-folder "/path/to/processed/images" \
     --thumb-folder "/path/to/thumbnails" \
     --max-width 800 --max-height 600 --thumb-size 93
 
 Notes:
-- There is no separate "input_thumb_folder" (it would be redundant with input).
-- Thumbnails are created from the *resized* image for consistency.
+- Output images and thumbnails are always saved as JPEG with names "0.jpg", "1.jpg", ...
+- Thumbnails are created from the resized image for consistency.
 - Valid crop types: top | center | bottom (via --crop-type).
 """
 
 import argparse
 import concurrent.futures
+import json
 import os
+from typing import Any, Dict, List, Tuple
 from PIL import Image, ImageOps
 
 try:
@@ -71,29 +82,29 @@ def resize_and_crop(image: Image.Image, size, crop_type='center') -> Image.Image
     return image.crop(box)
 
 
-def save_image(img: Image.Image, path: str):
-    ext = os.path.splitext(path)[1].lower()
-    if ext in ('.jpg', '.jpeg'):
-        img.save(path, quality=95, optimize=True)
-    elif ext in ('.png',):
-        img.save(path, optimize=True)
-    else:
-        img.save(path)
+def save_jpeg(img: Image.Image, path: str):
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+    img.save(path, format="JPEG", quality=95, optimize=True, subsampling="4:2:0")
 
 
-def process_image(filename: str, input_folder: str, output_folder: str,
-                  max_width: int, max_height: int,
-                  thumb_folder: str, thumb_size: int, crop_type: str):
-    img_path = os.path.join(input_folder, filename)
+def process_one(task: Tuple[int, str, str, str, int, int, str, int, str]) -> Tuple[int, str]:
+    (i, orig_filename, input_folder, output_folder, max_w, max_h,
+     thumb_folder, thumb_size, crop_type) = task
+
+    src_path = os.path.join(input_folder, orig_filename)
+    out_path = os.path.join(output_folder, f"{i}.jpg")
+    thumb_path = os.path.join(thumb_folder, f"{i}.jpg")
+
     try:
-        with Image.open(img_path) as img:
+        with Image.open(src_path) as img:
             img = ImageOps.exif_transpose(img)
             if img.mode in ("RGBA", "P"):
                 img = img.convert("RGB")
 
-            width_ratio = max_width / img.width
-            height_ratio = max_height / img.height
-            new_ratio = min(width_ratio, height_ratio)
+            width_ratio = max_w / img.width
+            height_ratio = max_h / img.height
+            new_ratio = min(width_ratio, height_ratio, 1.0)
 
             new_width = max(1, int(img.width * new_ratio))
             new_height = max(1, int(img.height * new_ratio))
@@ -103,68 +114,72 @@ def process_image(filename: str, input_folder: str, output_folder: str,
             os.makedirs(output_folder, exist_ok=True)
             os.makedirs(thumb_folder, exist_ok=True)
 
-            out_path = os.path.join(output_folder, filename)
-            save_image(resized_img, out_path)
+            save_jpeg(resized_img, out_path)
 
             thumb = resize_and_crop(resized_img, (thumb_size, thumb_size), crop_type=crop_type)
-            thumb_path = os.path.join(thumb_folder, filename)
-            save_image(thumb, thumb_path)
+            save_jpeg(thumb, thumb_path)
 
-            print(f"OK: {filename}")
+        return (i, "OK")
     except Exception as e:
-        print(f"ERROR: {filename} -> {e}")
-
-
-def resize_images(input_folder: str, output_folder: str,
-                  max_width: int, max_height: int,
-                  thumb_folder: str, thumb_size: int,
-                  crop_type: str = 'center', workers: int | None = None):
-    supported = (".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tif", ".tiff")
-    files = [f for f in os.listdir(input_folder)
-             if os.path.isfile(os.path.join(input_folder, f)) and f.lower().endswith(supported)]
-
-    if not files:
-        print("No images found.")
-        return
-
-    os.makedirs(output_folder, exist_ok=True)
-    os.makedirs(thumb_folder, exist_ok=True)
-
-    with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = [
-            executor.submit(
-                process_image, filename, input_folder, output_folder,
-                max_width, max_height, thumb_folder, thumb_size, crop_type
-            )
-            for filename in files
-        ]
-        for fut in concurrent.futures.as_completed(futures):
-            fut.result()
+        return (i, f"ERROR: {orig_filename} -> {e}")
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Resize images and create square thumbnails.")
-    parser.add_argument("--input-folder", required=False, default=r"./")
-    parser.add_argument("--output-folder", required=False, default=r"./")
-    parser.add_argument("--thumb-folder", required=False, default=r"./")
-    parser.add_argument("--max-width", type=int, default=800)
-    parser.add_argument("--max-height", type=int, default=600)
-    parser.add_argument("--thumb-size", type=int, default=93, help="Square thumbnail size in pixels (e.g., 93 -> 93x93).")
-    parser.add_argument("--crop-type", choices=["top", "center", "bottom"], default="center")
-    parser.add_argument("--workers", type=int, default=None, help="Number of parallel workers (default: CPU cores).")
-    return parser.parse_args()
+    p = argparse.ArgumentParser(description="Index-rename images, resize, and create square thumbnails; update data.json filenames to {index}.jpg.")
+    p.add_argument("--data-in", required=True, help="Path to input data.json (list of records).")
+    p.add_argument("--data-out", required=True, help="Path to write updated data.json (filenames set to {index}.jpg).")
+    p.add_argument("--input-folder", required=True, help="Folder containing ORIGINAL images (as referenced by data.json filenames).")
+    p.add_argument("--output-folder", required=True, help="Folder to write PROCESSED images (named {index}.jpg).")
+    p.add_argument("--thumb-folder", required=True, help="Folder to write THUMBNAILS (named {index}.jpg).")
+    p.add_argument("--max-width", type=int, default=800)
+    p.add_argument("--max-height", type=int, default=600)
+    p.add_argument("--thumb-size", type=int, default=93, help="Square thumbnail size in pixels (e.g., 93 -> 93x93).")
+    p.add_argument("--crop-type", choices=["top", "center", "bottom"], default="center")
+    p.add_argument("--workers", type=int, default=None, help="Number of parallel workers (default: CPU cores).")
+    return p.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    with open(args.data_in, "r", encoding="utf-8") as f:
+        records: List[Dict[str, Any]] = json.load(f)
+
+    if not isinstance(records, list):
+        raise ValueError("data.json must be a JSON array.")
+
+    tasks: List[Tuple[int, str, str, str, int, int, str, int, str]] = []
+    for i, rec in enumerate(records):
+        orig = rec.get("filename")
+        if not orig:
+            raise ValueError(f"Record {i} missing 'filename'.")
+        tasks.append((
+            i, orig,
+            args.input_folder, args.output_folder,
+            args.max_width, args.max_height,
+            args.thumb_folder, args.thumb_size, args.crop_type
+        ))
+
+    os.makedirs(args.output_folder, exist_ok=True)
+    os.makedirs(args.thumb_folder, exist_ok=True)
+
+    results: List[Tuple[int, str]] = []
+    with concurrent.futures.ProcessPoolExecutor(max_workers=args.workers) as ex:
+        futs = [ex.submit(process_one, t) for t in tasks]
+        for fut in concurrent.futures.as_completed(futs):
+            results.append(fut.result())
+
+    for i, status in sorted(results, key=lambda x: x[0]):
+        print(f"[{i}] {status}")
+
+    for i, rec in enumerate(records):
+        rec["filename"] = f"{i}.jpg"
+
+    with open(args.data_out, "w", encoding="utf-8") as f:
+        json.dump(records, f, ensure_ascii=False, indent=2)
+
+    print(f"\n✅ Done.\n - Processed images -> {args.output_folder}\n - Thumbnails -> {args.thumb_folder}\n - Updated data.json -> {args.data_out}\n - Filenames now index-based (0.jpg, 1.jpg, ...)")
 
 
 if __name__ == "__main__":
-    args = parse_args()
-
-    resize_images(
-        input_folder=args.input_folder,
-        output_folder=args.output_folder,
-        max_width=args.max_width,
-        max_height=args.max_height,
-        thumb_folder=args.thumb_folder,
-        thumb_size=args.thumb_size,
-        crop_type=args.crop_type,
-        workers=args.workers
-    )
+    main()

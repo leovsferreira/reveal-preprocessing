@@ -20,7 +20,7 @@ Build relations between images (data.json) and words (unique_words.json).
 Usage:
   # Windows
   python build_relations.py ^
-    --data-in "data\\data.json" ^
+    --data-in "data\\data_indexed.json" ^
     --words-in "data\\unique_words.json" ^
     --data-out "data\\data_with_relations.json" ^
     --words-out "data\\unique_words_with_relations.json" ^
@@ -28,7 +28,7 @@ Usage:
 
   # macOS / Linux
   python build_relations.py \
-    --data-in "data/data.json" \
+    --data-in "data/data_indexed.json" \
     --words-in "data/unique_words.json" \
     --data-out "data/data_with_relations.json" \
     --words-out "data/unique_words_with_relations.json" \

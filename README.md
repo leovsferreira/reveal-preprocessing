@@ -82,7 +82,7 @@ Run the script:
 **Windows (PowerShell / CMD):**
 ```bash
 python extract_unique_words.py ^
-  --input-file "path\to\data.json" ^
+  --input-file "path\to\data_indexed.json" ^
   --output-file "path\to\unique_words.json" ^
   --min-len 3
 ```
@@ -90,7 +90,7 @@ python extract_unique_words.py ^
 **Linux / macOS:**
 ```bash
 python extract_unique_words.py \
-  --input-file "/path/to/data.json" \
+  --input-file "/path/to/data_indexed.json" \
   --output-file "/path/to/unique_words.json" \
   --min-len 3
 ```
@@ -116,7 +116,7 @@ Run the script:
 **Windows (PowerShell / CMD):**
 ```bash
 python build_relations.py ^
-  --data-in "path\to\data.json" ^
+  --data-in "path\to\data_indexed.json" ^
   --words-in "path\to\unique_words.json" ^
   --data-out "path\to\data_with_relations.json" ^
   --words-out "path\to\unique_words_with_relations.json" ^
@@ -126,7 +126,7 @@ python build_relations.py ^
 **Linux / macOS:**
 ```bash
 python build_relations.py \
-  --data-in "/path/to/data.json" \
+  --data-in "/path/to/data_indexed.json" \
   --words-in "/path/to/unique_words.json" \
   --data-out "/path/to/data.with_relations.json" \
   --words-out "/path/to/unique_words.with_relations.json" \

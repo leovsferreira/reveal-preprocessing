@@ -9,13 +9,13 @@ Extract unique content words from JSON captions (cleaner version).
 Usage:
   # Windows
   python extract_unique_words.py ^
-    --input-file "data\\data.json" ^
+    --input-file "data\\data_indexed.json" ^
     --output-file "data\\unique_words.json" ^
     --min-len 3
 
   # macOS / Linux
   python extract_unique_words.py \
-    --input-file "data/records.json" \
+    --input-file "data/data_indexed.json" \
     --output-file "data/unique_words.json" \
     --min-len 3
 """
