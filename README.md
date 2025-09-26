@@ -82,16 +82,16 @@ Run the script:
 **Windows (PowerShell / CMD):**
 ```bash
 python extract_unique_words.py ^
-  --input-file "path\to\records.json" ^
-  --output-file "path\to\unique_words.csv" ^
+  --input-file "path\to\data.json" ^
+  --output-file "path\to\unique_words.json" ^
   --min-len 3
 ```
 
 **Linux / macOS:**
 ```bash
 python extract_unique_words.py \
-  --input-file "/path/to/records.json" \
-  --output-file "/path/to/unique_words.csv" \
+  --input-file "/path/to/data.json" \
+  --output-file "/path/to/unique_words.json" \
   --min-len 3
 ```
 
@@ -99,15 +99,44 @@ The script:
 - Normalizes text  
 - Removes stopwords  
 - Keeps only content words (NOUN, VERB, ADJ, ADV)  
-- Outputs a CSV of unique lemmatized words  
+- Outputs a JSON of unique lemmatized words  
 
 ---
+
+## 🔗 Step 2 — Build Relations Between Images and Text
+
+Link images and unique words by building a bidirectional mapping:
+
+1. Each image gets a `text_ids` list → indices of words found in its caption
+
+2. Each word gets an `image_ids` list → indices of images where it appears
+
+Run the script:
+
+**Windows (PowerShell / CMD):**
+```bash
+python build_relations.py ^
+  --data-in "path\to\data.json" ^
+  --words-in "path\to\unique_words.json" ^
+  --data-out "path\to\data_with_relations.json" ^
+  --words-out "path\to\unique_words_with_relations.json" ^
+  --min-len 3
+```
+
+**Linux / macOS:**
+```bash
+python build_relations.py \
+  --data-in "/path/to/data.json" \
+  --words-in "/path/to/unique_words.json" \
+  --data-out "/path/to/data.with_relations.json" \
+  --words-out "/path/to/unique_words.with_relations.json" \
+  --min-len 3
+```
 
 ## ✅ Summary
 
 1. **Install dependencies** → `pip install -r requirements.txt`  
 2. **Download spaCy model** → `python -m spacy download en_core_web_sm`  
 3. **Preprocess images** → `preprocess_images.py`  
-4. **Extract unique words** → `create_unique_texts.py`  
-
-You now have a dataset ready to use in **Reveal** 🚀
+4. **Extract unique words** → `create_unique_texts.py`
+5. **Build relations** → `build_relations.py`

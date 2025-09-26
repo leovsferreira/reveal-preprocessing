@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Extract unique content words from JSON captions (cleaner version).
 
@@ -10,14 +9,14 @@ Extract unique content words from JSON captions (cleaner version).
 Usage:
   # Windows
   python extract_unique_words.py ^
-    --input-file "data\\records.json" ^
-    --output-file "data\\unique_words.csv" ^
+    --input-file "data\\data.json" ^
+    --output-file "data\\unique_words.json" ^
     --min-len 3
 
   # macOS / Linux
   python extract_unique_words.py \
     --input-file "data/records.json" \
-    --output-file "data/unique_words.csv" \
+    --output-file "data/unique_words.json" \
     --min-len 3
 """
 
@@ -45,11 +44,11 @@ def parse_args():
     return p.parse_args()
 
 def is_noise_token(t: str, min_len: int, zipf_min):
-    if len(t) < min_len:              # drop very short tokens
+    if len(t) < min_len:             
         return True
-    if t in NOISE:                    # drop known junk
+    if t in NOISE:                   
         return True
-    if t in ORDINAL_SUFFIXES:         # drop ordinal suffixes
+    if t in ORDINAL_SUFFIXES:        
         return True
     if zipf_min is not None and zipf_frequency is not None:
         if zipf_frequency(t, "en") < zipf_min:
@@ -79,11 +78,13 @@ def process_file(nlp, input_file, output_file, min_len, zipf_min):
                 continue
             unique_words.add(lemma)
 
-    with open(output_file, "w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(["word"])
-        for word in sorted(unique_words):
-            w.writerow([word])
+    result = [
+        {"word": word, "coordinates": [], "image_ids": []}
+        for word in sorted(unique_words)
+    ]
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False)
 
     print(f"✅ Extracted {len(unique_words)} unique words -> {output_file}")
 
