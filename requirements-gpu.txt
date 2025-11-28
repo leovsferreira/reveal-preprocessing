@@ -26,3 +26,5 @@ wordfreq>=3.0.0
 timm>=0.9.0
 open-clip-torch>=2.24.0
 multilingual-clip>=1.0.10
+
+shapely
