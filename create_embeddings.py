@@ -107,10 +107,6 @@ def build_image_encoder(device: str):
 
 
 def build_text_encoder(device: str):
-    """
-    Use the SAME CLIP model and tokenizer for text as for images
-    so embeddings are in the same 512-dim space.
-    """
     model, _, _ = open_clip.create_model_and_transforms(
         'ViT-B-16-plus-240', pretrained="laion400m_e32"
     )
@@ -185,12 +181,8 @@ def encode_texts_textlevel(
     overlap: int = 64,    
     pooling: str = "mean",
 ) -> torch.Tensor:
-    """
-    Encode texts using CLIP text encoder (open_clip).
-    All outputs are in the same 512-dim space as images.
-    """
+    
     out: List[torch.Tensor] = []
-    # Ensure no completely empty strings
     texts = [str(t) if str(t).strip() else "[EMPTY]" for t in texts]
 
     for start in tqdm(range(0, len(texts), batch_size), desc="Encoding texts (CLIP)"):
@@ -202,7 +194,6 @@ def encode_texts_textlevel(
         out.append(feats.cpu())
 
     if not out:
-        # ViT-B-16-plus-240 text embeddings are 512-dim
         return torch.zeros((0, 512))
 
     return torch.cat(out, dim=0)
@@ -241,7 +232,6 @@ def parse_args():
                    help="Path to save words embedding tensor (.pt).")
     p.add_argument("--joint-pt", required=True,
                    help="Path to save joint embedding tensor (.pt).")
-    # These are now effectively ignored for CLIP, but kept for CLI compatibility
     p.add_argument("--max-tokens", type=int, default=512,
                    help="(Ignored for CLIP) kept for backwards compatibility.")
     p.add_argument("--overlap", type=int, default=64,
@@ -330,7 +320,6 @@ def main():
 
     img_norm = l2_normalize(img_emb)
     cap_norm = l2_normalize(cap_emb)
-    # CLIP image/text both 512-dim -> joint is 1024-dim
     joint = torch.cat([img_norm, cap_norm], dim=-1)
     torch.save(joint, args.joint_pt)
     print(f"Saved joint embeddings to {args.joint_pt} (shape={tuple(joint.shape)})")
